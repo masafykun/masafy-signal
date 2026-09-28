@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MASAFY Signal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #e9eff3;
+    --muted: #9db0bd;
+    --faint: #6b7f8d;
+    --signal: #ffc76e;
+    --panel: rgba(7, 14, 22, 0.58);
+    --line: rgba(190, 215, 235, 0.16);
+    --ground: #070d14;
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  canvas#scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .hud {
+    position: fixed; inset: 0;
+    padding: calc(env(safe-area-inset-top, 0px) + 24px) 24px calc(env(safe-area-inset-bottom, 0px) + 24px);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    pointer-events: none;
+  }
+  .brand { display: grid; gap: 6px; }
+  .wordmark {
+    margin: 0;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 500;
+    font-size: clamp(22px, 3.2vw, 32px);
+    letter-spacing: 0.42em;
+  }
+  .tagline {
+    margin: 0;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+  }
+  .motto { margin: 4px 0 0; font-size: 13px; color: var(--muted); }
+
+  .bottom {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    justify-content: space-between; align-items: flex-end;
+  }
+  .panel {
+    pointer-events: auto;
+    background: var(--panel);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .morse { display: grid; gap: 10px; min-width: 0; max-width: 100%; }
+  .letters { display: flex; gap: 14px; }
+  .letter { display: grid; gap: 4px; justify-items: center; color: var(--faint); transition: color .2s; }
+  .letter b {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-weight: 500; font-size: 18px;
+  }
+  .letter span { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 14px; line-height: 1; letter-spacing: 0.12em; }
+  .letter.on { color: var(--signal); }
+  .lamp {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #2a3440; margin-right: 8px; vertical-align: 1px;
+    transition: background .05s, box-shadow .05s;
+  }
+  .lamp.lit { background: var(--signal); box-shadow: 0 0 10px var(--signal); }
+
+  .controls { display: grid; gap: 12px; width: min(280px, 100%); }
+  .row { display: grid; gap: 6px; }
+  .row .head { display: flex; justify-content: space-between; }
+  .row output { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--signal); }
+  input[type="range"]:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+  .note { margin: 0; font-size: 11px; line-height: 1.6; color: var(--faint); }
+
+  .loading {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.2em;
+    color: var(--muted); background: var(--ground); transition: opacity .8s;
+  }
+  .loading.done { opacity: 0; pointer-events: none; }
+
+  @media (max-width: 640px) {
+    .hud { padding-left: 16px; padding-right: 16px; }
+    .bottom { flex-direction: column; align-items: stretch; }
+    .controls { width: auto; }
+    .motto { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene" aria-label="夕暮れの海と、MASAFYをモールス信号で送る灯台"></canvas>
+<div class="loading" id="loading">LOADING SEA…</div>
+
+<div class="hud">
+  <header class="brand">
+    <h1 class="wordmark">MASAFY</h1>
+    <p class="tagline">SECURITY × AI × MAKER</p>
+    <p class="motto">「守る」「自動化する」「つくる」を、ぜんぶコードで</p>
+  </header>
+  <div></div>
+  <div class="bottom">
+    <section class="panel morse" aria-live="off">
+      <div class="label"><span class="lamp" id="lamp"></span>灯台が送信中のモールス符号</div>
+      <div class="letters" id="letters"></div>
+    </section>
+    <section class="panel controls">
+      <div class="row">
+        <div class="head"><label class="label" for="sun">太陽の高さ</label><output id="sunOut"></output></div>
+        <input type="range" id="sun" min="-4" max="25" step="0.1" value="1.6">
+      </div>
+      <div class="row">
+        <div class="head"><label class="label" for="wave">うねり</label><output id="waveOut"></output></div>
+        <input type="range" id="wave" min="0.5" max="8" step="0.1" value="3.7">
+      </div>
+      <p class="note">ドラッグで視点移動、ピンチ・ホイールで寄り引き。海面は three.js の Water シェーダー、空は Sky（大気散乱モデル）。波の法線マップはページ内で生成しています。</p>
+    </section>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Water } from 'three/addons/objects/Water.js';
+import { Sky } from 'three/addons/objects/Sky.js';
+
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas = document.getElementById('scene');
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.5;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 1, 20000);
+camera.position.set(40, 14, 120);
+
+// ---- Procedural tileable water normal map (no external images allowed) ----
+function makeWaterNormals(size = 512) {
+  const h = new Float32Array(size * size);
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const waves = [];
+  for (let i = 0; i < 64; i++) {
+    const kx = Math.round((rand() * 2 - 1) * 28), ky = Math.round((rand() * 2 - 1) * 28);
+    const k = Math.hypot(kx, ky);
+    if (k < 2) continue;
+    waves.push({ kx, ky, a: 1 / Math.pow(k, 1.25), p: rand() * Math.PI * 2 });
+  }
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    let v = 0;
+    const u = x / size * Math.PI * 2, w = y / size * Math.PI * 2;
+    for (const s of waves) v += s.a * Math.sin(s.kx * u + s.ky * w + s.p);
+    h[y * size + x] = v;
+  }
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const ctx = c.getContext('2d'); const img = ctx.createImageData(size, size);
+  const at = (x, y) => h[((y + size) % size) * size + ((x + size) % size)];
+  const strength = 6;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
+    const dy = (at(x, y + 1) - at(x, y - 1)) * strength;
+    const len = Math.hypot(dx, dy, 1);
+    const i = (y * size + x) * 4;
+    img.data[i] = (-dx / len * 0.5 + 0.5) * 255;
+    img.data[i + 1] = (-dy / len * 0.5 + 0.5) * 255;
+    img.data[i + 2] = (1 / len) * 255;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
+
+const sun = new THREE.Vector3();
+const water = new Water(new THREE.PlaneGeometry(10000, 10000), {
+  textureWidth: 512, textureHeight: 512,
+  waterNormals: makeWaterNormals(),
+  sunDirection: new THREE.Vector3(),
+  sunColor: 0xffffff,
+  waterColor: 0x00283a,
+  distortionScale: 3.7,
+  fog: false,
+});
+water.rotation.x = -Math.PI / 2;
+water.material.uniforms.size.value = 1.6;
+scene.add(water);
+
+const sky = new Sky();
+sky.scale.setScalar(10000);
+scene.add(sky);
+const su = sky.material.uniforms;
+su.turbidity.value = 10;
+su.rayleigh.value = 2.2;
+su.mieCoefficient.value = 0.005;
+su.mieDirectionalG.value = 0.82;
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envScene = new THREE.Scene();
+let envRT;
+
+// ---- Lighthouse on a rock, off to the left of the sun ----
+const lh = new THREE.Group();
+lh.position.set(-300, 0, -640);
+lh.scale.setScalar(1.3);
+scene.add(lh);
+
+const rockGeo = new THREE.IcosahedronGeometry(46, 4);
+const pos = rockGeo.attributes.position;
+for (let i = 0; i < pos.count; i++) {
+  const v = new THREE.Vector3().fromBufferAttribute(pos, i);
+  const n = Math.sin(v.x * 0.21) * Math.cos(v.z * 0.17) * 5 + Math.sin(v.x * 0.6 + v.z * 0.5) * 1.8;
+  v.multiplyScalar(1 + n / 46);
+  pos.setXYZ(i, v.x, v.y * 0.32 - 3, v.z);
+}
+rockGeo.computeVertexNormals();
+lh.add(new THREE.Mesh(rockGeo, new THREE.MeshStandardMaterial({ color: 0x2b2824, roughness: 0.95 })));
+
+const white = new THREE.MeshStandardMaterial({ color: 0xe8e4dc, roughness: 0.6 });
+const red = new THREE.MeshStandardMaterial({ color: 0x8e1f1b, roughness: 0.55 });
+const dark = new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: 0.5, metalness: 0.4 });
+const add = (geo, mat, y) => { const m = new THREE.Mesh(geo, mat); m.position.y = y; lh.add(m); return m; };
+add(new THREE.CylinderGeometry(3.4, 4.8, 12, 32), white, 17);
+add(new THREE.CylinderGeometry(3.0, 3.4, 8, 32), red, 27);
+add(new THREE.CylinderGeometry(2.6, 3.0, 10, 32), white, 36);
+add(new THREE.CylinderGeometry(4.2, 4.2, 0.8, 32), dark, 41.4);
+const lanternMat = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0xffc76e, emissiveIntensity: 0.2, roughness: 0.2 });
+add(new THREE.CylinderGeometry(2.2, 2.2, 3.6, 24), lanternMat, 43.6);
+add(new THREE.ConeGeometry(2.8, 3, 24), red, 46.9);
+
+function glowTexture(stops) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d'); const grd = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+  stops.forEach(([o, col]) => grd.addColorStop(o, col));
+  g.fillStyle = grd; g.fillRect(0, 0, 256, 256);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+const glowTex = glowTexture([[0, 'rgba(255,250,235,1)'], [0.12, 'rgba(255,215,140,0.9)'], [0.4, 'rgba(255,170,70,0.25)'], [1, 'rgba(255,150,50,0)']]);
+const spriteMat = (opacity) => new THREE.SpriteMaterial({ map: glowTex, color: 0xffffff, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+const glow = new THREE.Sprite(spriteMat(1)); glow.position.y = 43.6; lh.add(glow);
+const streak = new THREE.Sprite(spriteMat(0.6)); streak.position.y = 43.6; lh.add(streak);
+
+// ---- Morse: M A S A F Y ----
+const CODE = { M: '--', A: '.-', S: '...', F: '..-.', Y: '-.--' };
+const WORD = 'MASAFY';
+const UNIT = 0.22;
+const timeline = [];
+[...WORD].forEach((ch, li) => {
+  [...CODE[ch]].forEach((sym, si, arr) => {
+    timeline.push({ on: true, d: sym === '.' ? 1 : 3, li });
+    timeline.push({ on: false, d: si === arr.length - 1 ? (li === WORD.length - 1 ? 9 : 3) : 1, li });
+  });
+});
+const total = timeline.reduce((s, e) => s + e.d, 0);
+
+const lettersEl = document.getElementById('letters');
+const letterEls = [...WORD].map(ch => {
+  const el = document.createElement('div'); el.className = 'letter';
+  el.innerHTML = `<b>${ch}</b><span>${CODE[ch].replace(/\./g, '·').replace(/-/g, '–')}</span>`;
+  lettersEl.appendChild(el); return el;
+});
+const lamp = document.getElementById('lamp');
+let lastLi = -1, lastOn = null;
+
+function morseAt(t) {
+  let u = (t / UNIT) % total;
+  for (const e of timeline) { if (u < e.d) return e; u -= e.d; }
+  return timeline[0];
+}
+
+// ---- Controls ----
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(-60, 12, -300);
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 60; controls.maxDistance = 700;
+controls.enableDamping = true;
+controls.update();
+
+const sunIn = document.getElementById('sun'), waveIn = document.getElementById('wave');
+const sunOut = document.getElementById('sunOut'), waveOut = document.getElementById('waveOut');
+
+function updateSun() {
+  const elev = parseFloat(sunIn.value);
+  sunOut.textContent = `${elev.toFixed(1)}°`;
+  const phi = THREE.MathUtils.degToRad(90 - elev), theta = THREE.MathUtils.degToRad(185);
+  sun.setFromSphericalCoords(1, phi, theta);
+  su.sunPosition.value.copy(sun);
+  water.material.uniforms.sunDirection.value.copy(sun).normalize();
+  const k = THREE.MathUtils.clamp((elev + 4) / 12, 0, 1);
+  water.material.uniforms.sunColor.value.setRGB(1, 0.55 + 0.45 * k, 0.35 + 0.65 * k).multiplyScalar(0.25 + 0.75 * k);
+  renderer.toneMappingExposure = 0.32 + 0.2 * k;
+
+  if (envRT) envRT.dispose();
+  envScene.add(sky);
+  envRT = pmrem.fromScene(envScene);
+  scene.add(sky);
+  scene.environment = envRT.texture;
+  night = 1 - k;
+}
+function updateWave() {
+  const v = parseFloat(waveIn.value);
+  waveOut.textContent = v.toFixed(1);
+  water.material.uniforms.distortionScale.value = v;
+}
+let night = 0, sunTimer;
+sunIn.addEventListener('input', () => { clearTimeout(sunTimer); sunTimer = setTimeout(updateSun, 30); });
+waveIn.addEventListener('input', updateWave);
+updateSun(); updateWave();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ---- Loop ----
+const clock = new THREE.Clock();
+let level = 0;
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const t = clock.elapsedTime;
+  water.material.uniforms.time.value += dt * (reduceMotion ? 0.25 : 0.6);
+
+  const e = morseAt(t);
+  level += ((e.on ? 1 : 0) - level) * Math.min(1, dt * 40);
+  const vis = 0.55 + 0.45 * night;
+  const s = (70 + 120 * night) * level * vis;
+  glow.scale.set(s, s, 1);
+  streak.scale.set(s * 5, s * 0.12, 1);
+  glow.material.opacity = level * vis;
+  streak.material.opacity = level * 0.5 * vis;
+  lanternMat.emissiveIntensity = 0.2 + level * 10;
+
+  if (e.li !== lastLi) { letterEls.forEach((el, i) => el.classList.toggle('on', i === e.li)); lastLi = e.li; }
+  if (e.on !== lastOn) { lamp.classList.toggle('lit', e.on); lastOn = e.on; }
+
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(() => {
+  const loading = document.getElementById('loading');
+  loading.classList.add('done');
+  setTimeout(() => { loading.hidden = true; }, 900);
+  frame();
+});
+</script>
+</body>
+</html>
